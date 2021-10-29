@@ -26,7 +26,7 @@
 #include "common.h"
 
 #define PACKED_IMG_MAGIC 0x4b504246  // "FBPK"
-#define MIN_SUPPORTED_VERSION 0x1
+#define MIN_SUPPORTED_VERSION 0x2
 #define FBPT_SIGNATURE 0x54504246  // "FBPT"
 #define MAX_PARTITIONS 0x101
 #define GUID_STR_SIZE 8 + 4 + 4 + 4 + 16 + 1  // Includes null termination
@@ -34,19 +34,19 @@
 typedef struct packed_header {
   u4 magic;
   u4 version;
-  char img_version[68];
+  char img_version[0x60];
   u4 num_of_entries;
   u4 total_file_sz;
 } packed_header_t;
 
 typedef struct packed_img_header_entry {
   u4 type;
-  char partition_name[32];
+  char partition_name[72];
   u4 pad1;  // Most likely used for images with size > UINT32_MAX
-  u4 partition_sz;
+  u4 partition_start;
   u4 pad2;  // Most likely used for images with size > UINT32_MAX (offset needs bigger ranges)
-  u4 next_offset;
-  u4 checksum;
+  u4 partition_size;
+  u4 pad3[3];
 } packed_img_header_entry_t;
 
 #if 0

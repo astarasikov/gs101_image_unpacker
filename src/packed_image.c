@@ -74,7 +74,7 @@ bool packed_image_extract(u1 *buf, size_t bufSz, char *filePath, char *outputDir
     return false;
   }
 
-  if (pPackedHeader->version > MIN_SUPPORTED_VERSION) {
+  if (pPackedHeader->version != MIN_SUPPORTED_VERSION) {
     LOGMSG(l_ERROR, "Unsupported version (0x%x > 0x%x)", pPackedHeader->version,
            MIN_SUPPORTED_VERSION);
     return false;
@@ -90,6 +90,7 @@ bool packed_image_extract(u1 *buf, size_t bufSz, char *filePath, char *outputDir
 
   pImgHeaderEntry = (packed_img_header_entry_t *)(buf + sizeof(packed_header_t));
   entries = pPackedHeader->num_of_entries;
+  LOGMSG(l_INFO, "Number of entries %d", entries);
 
   if ((size_t)bufSz < pPackedHeader->total_file_sz) {
     LOGMSG(l_ERROR, "Unexpected file size (0x%x < 0x%x)", bufSz, pPackedHeader->total_file_sz);
@@ -109,21 +110,19 @@ bool packed_image_extract(u1 *buf, size_t bufSz, char *filePath, char *outputDir
 
   LOGMSG(l_DEBUG, "Processing '%u' entries in packed image", entries);
   for (i = 0; i < entries; i++) {
-    u8 expandedSize = (u8)(pImgHeaderEntry->partition_sz) | ((u8)(pImgHeaderEntry->pad1) << 32);
-    u8 expandedNextOffet = (u8)(pImgHeaderEntry->next_offset) | ((u8)(pImgHeaderEntry->pad2) << 32);
+    pImgHeaderEntry = (packed_img_header_entry_t *)(buf + sizeof(packed_header_t) + i * sizeof(packed_img_header_entry_t));
+    u8 expandedStart = (u8)(pImgHeaderEntry->partition_start) | ((u8)(pImgHeaderEntry->pad1) << 32);
+    u8 expandedSize = (u8)(pImgHeaderEntry->partition_size) | ((u8)(pImgHeaderEntry->pad2) << 32);
 
-    LOGMSG_RAW(l_INFO, "%u: %s (type:0x%x size:0x%llx next:0x%llx)\n", i,
-               pImgHeaderEntry->partition_name, pImgHeaderEntry->type, expandedSize,
-               expandedNextOffet);
+    LOGMSG_RAW(l_INFO, "%u: %s (type:0x%x start:0x%llx size:0x%llx)\n", i,
+               pImgHeaderEntry->partition_name, pImgHeaderEntry->type, expandedStart,
+               expandedSize);
     // Overflow checks
     if (((u1 *)pImgHeaderEntry > pLastValidEntry) || (expandedSize & 0x8000000000000000ull) ||
         ((u1 *)(pImgHeaderEntry) + expandedSize + sizeof(packed_img_header_entry_t) > pImageEnd)) {
       LOGMSG(l_ERROR, "Corrupted packed image");
       return false;
     }
-
-    // Ensure null termination of description string (not an issue as pad1 MSB is always zero)
-    *(u1 *)(pImgHeaderEntry + 39) = 0x0;
 
     // In case of partition table entry simply print information, nothing to extract
     if (pImgHeaderEntry->type == 0x0) {
@@ -132,7 +131,17 @@ bool packed_image_extract(u1 *buf, size_t bufSz, char *filePath, char *outputDir
         LOGMSG(l_ERROR, "Partition table processing failed");
         return false;
       }
-      goto next;
+      continue;
+    }
+
+    // On GS101, partitions seem to be prepended by 0x1000 bytes of cryptographic signature
+    // (including partition name again)
+    if (expandedSize < 0x1000) {
+      LOGMSG(l_INFO, "Partition is smaller than 0x1000 bytes, NOT skipping digest header");
+    }
+    else {
+      expandedSize -= 0x1000;
+      expandedStart += 0x1000;
     }
 
     // Write output file
@@ -147,7 +156,7 @@ bool packed_image_extract(u1 *buf, size_t bufSz, char *filePath, char *outputDir
       return false;
     }
 
-    if (!utils_writeToFd(dstFD, (u1 *)pImgHeaderEntry + sizeof(packed_img_header_entry_t),
+    if (!utils_writeToFd(dstFD, ((u1 *)buf) + expandedStart,
                          expandedSize)) {
       LOGMSG_P(l_ERROR, "Write to '%s' failed", outFile);
       close(dstFD);
@@ -157,10 +166,6 @@ bool packed_image_extract(u1 *buf, size_t bufSz, char *filePath, char *outputDir
 
     close(dstFD);
     dstFD = -1;
-
-    // Point to next entry
-  next:
-    pImgHeaderEntry = (packed_img_header_entry_t *)(buf + expandedNextOffet);
   }
 
   return true;

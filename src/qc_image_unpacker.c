@@ -115,6 +115,8 @@ int main(int argc, char **argv) {
     pRunArgs.outputDir =
         utils_isValidDir(pFiles.inputFile) ? pFiles.inputFile : dirname(pFiles.inputFile);
 
+  LOGMSG(l_INFO, "GS101 FBPK V2 unpacker. Based on qc_image_unpacker by Census Labs");
+
   size_t processedImgs = 0;
   LOGMSG(l_INFO, "Processing %zu file(s) from %s", pFiles.fileCnt, pFiles.inputFile);
 
